@@ -1,146 +1,189 @@
-# 📊 Distribución de Cartera Financiera — Prueba Técnica
+# 📊 Distribución de Cartera Financiera — Colombia
 
-Solución completa para extraer, almacenar y exponer los datos de distribución de cartera
-de las entidades financieras colombianas publicados en [datos.gov.co](https://www.datos.gov.co/Hacienda-y-Cr-dito-P-blico/Distribuci-n-de-cartera-por-producto/rvii-eis8/about_data).
+![Python](https://img.shields.io/badge/Python-3.14-blue)
+![FastAPI](https://img.shields.io/badge/FastAPI-0.111-green)
+![PostgreSQL](https://img.shields.io/badge/PostgreSQL-16-blue)
+![Render](https://img.shields.io/badge/Deploy-Render-purple)
+![Status](https://img.shields.io/badge/API-Live-brightgreen)
+
+Solución completa para extraer, almacenar, exponer y visualizar los datos de distribución de cartera de las entidades financieras colombianas publicados en [datos.gov.co](https://www.datos.gov.co/Hacienda-y-Cr-dito-P-blico/Distribuci-n-de-cartera-por-producto/rvii-eis8/about_data).
+
+> **Prueba Técnica — Practicante TI | Visión Gerencial**
+> Candidato: Mateo Alvarez | Entrega: 18 de abril de 2026
 
 ---
 
-## 🏗️ Arquitectura
+## Arquitectura
 
 ```
 datos.gov.co (API Socrata)
         │
         ▼
-  rpa/extractor.py  ──►  PostgreSQL (cartera)
-                                │
-                                ▼
-                         api/main.py (FastAPI)
-                                │
-                                ▼
-                         Power BI Dashboard
+  rpa/extractor.py          ← Descarga y pagina 107.721 registros
+        │
+        ▼
+  PostgreSQL (Render Cloud) ← Almacenamiento persistente en la nube
+        │
+        ▼
+  api/main.py (FastAPI)     ← API REST pública con 6 endpoints
+        │
+        ▼
+  Power BI Dashboard        ← Análisis visual con filtros interactivos
 ```
 
 ---
 
-## 📁 Estructura del proyecto
+## Estructura del proyecto
 
 ```
-cartera_rpa/
+Prueba_tecnica/
 ├── rpa/
 │   ├── extractor.py        # RPA: descarga y carga los datos
-│   └── requirements.txt
+│   └── diagnostico.py      # Herramienta de diagnóstico de encoding
 ├── api/
 │   ├── main.py             # API REST con FastAPI
 │   └── requirements.txt
 ├── db/
-│   └── schema.sql          # Definición de tabla e índices
-├── .env.example            # Plantilla de variables de entorno
+│   └── schema.sql          # Tabla e índices en PostgreSQL
+├── dashboard/
+│   └── Cartera_Financiera.pbix
+├── .gitignore
 └── README.md
 ```
 
 ---
 
-## ⚙️ Configuración
+## Instalación y configuración
 
-### 1. Variables de entorno
+### Requisitos
+- Python 3.14+
+- PostgreSQL 16+
+- Power BI Desktop
 
-```bash
-cp .env.example .env
-# Edita .env con tu cadena de conexión a PostgreSQL
-```
+### Variables de entorno
 
 ```env
-DATABASE_URL=postgresql://usuario:contraseña@host:5432/nombre_db
+DATABASE_URL=postgresql://usuario:password@host:5432/nombre_db
 ```
 
-### 2. Crear la base de datos
+### Crear la base de datos
 
 ```bash
-psql $DATABASE_URL -f db/schema.sql
+psql -U postgres -d cartera_db -f db/schema.sql
 ```
 
 ---
 
-## 🤖 RPA — Extracción de datos
+## RPA — Extracción de datos
 
 ```bash
 cd rpa
 pip install -r requirements.txt
+
+# Windows
+$env:DATABASE_URL="postgresql://..."
 python extractor.py
 ```
 
-El script:
-- Pagina la API Socrata en bloques de 50.000 registros
-- Convierte tipos de datos de forma segura
-- Inserta en PostgreSQL con `ON CONFLICT DO NOTHING`
-- Genera log en `rpa_extractor.log`
+Características del extractor:
+- Paginación automática en bloques de 50.000 registros
+- Logging a consola y archivo rpa_extractor.log
+- Conversión segura de tipos con safe_float, safe_int, clean_str
+- Compatible con Python 3.14 usando psycopg3
+- ON CONFLICT DO NOTHING para evitar duplicados
+
+Resultado: 107.721 registros insertados en 25 segundos.
 
 ---
 
-## 🚀 API — Endpoints disponibles
+## API REST — Endpoints
 
-```bash
-cd api
-pip install -r requirements.txt
-uvicorn main:app --reload
-```
+URL base: https://prueba-tecnica-api-gsrr.onrender.com
 
-Documentación interactiva: `http://localhost:8000/docs`
+Documentación interactiva: https://prueba-tecnica-api-gsrr.onrender.com/docs
 
 | Método | Endpoint | Descripción |
 |--------|----------|-------------|
-| GET | `/` | Estado de la API |
-| GET | `/cartera` | Consulta por entidad y tipo de cartera |
-| GET | `/entidades` | Catálogo de entidades |
-| GET | `/tipos-cartera` | Catálogo de tipos de cartera |
-| GET | `/resumen` | Agregados por tipo de cartera |
+| GET | / | Estado de la API |
+| GET | /health | Estado de la API y conexión a DB |
+| GET | /entidades | Catálogo de entidades financieras |
+| GET | /tipos-cartera | Catálogo de tipos de cartera |
+| GET | /cartera | Consulta por entidad y tipo de cartera |
+| GET | /resumen | Agregados por tipo de cartera |
+| GET | /tendencia | Evolución mensual del saldo |
 
-### Ejemplo de uso
+### Ejemplos de uso
 
 ```bash
-# Cartera de Bancolombia tipo libranza
-curl "https://tu-api.onrender.com/cartera?entidad=Bancolombia&tipo_cartera=LIBRANZA"
+# Estado de la API
+curl https://prueba-tecnica-api-gsrr.onrender.com/health
 
-# Resumen general por tipo de cartera
-curl "https://tu-api.onrender.com/resumen"
+# Listar entidades
+curl https://prueba-tecnica-api-gsrr.onrender.com/entidades
 
-# Catálogo de entidades
-curl "https://tu-api.onrender.com/entidades"
+# Cartera de Bancolombia tipo Libranza
+curl "https://prueba-tecnica-api-gsrr.onrender.com/cartera?entidad=Bancolombia&tipo_cartera=LIBRANZA"
+
+# Resumen por tipo de cartera
+curl https://prueba-tecnica-api-gsrr.onrender.com/resumen
+
+# Tendencia mensual
+curl "https://prueba-tecnica-api-gsrr.onrender.com/tendencia?tipo_cartera=LIBRANZA"
+```
+
+### Ejemplo de respuesta /resumen
+
+```json
+[
+  {
+    "tipo_cartera": "LIBRANZA",
+    "num_registros": 8652,
+    "saldo_total": 15509652509831262,
+    "total_vigente": 15107036532414798,
+    "total_vencida": 402615991099478,
+    "clientes_en_mora": 17280912
+  }
+]
 ```
 
 ---
 
-## ☁️ Despliegue (Render.com — gratis)
+## Power BI Dashboard
 
-1. Sube el repo a GitHub
-2. Crea un nuevo **Web Service** en [render.com](https://render.com)
-3. Configura:
-   - **Root directory:** `api`
-   - **Build command:** `pip install -r requirements.txt`
-   - **Start command:** `uvicorn main:app --host 0.0.0.0 --port $PORT`
-4. Agrega la variable de entorno `DATABASE_URL`
-5. Deploy ✅
+Conectado directamente a PostgreSQL en Render.
 
----
+Visualizaciones:
+- 4 KPI Cards: Saldo total, Cartera vigente, Cartera vencida, Clientes en mora
+- Grafico de linea: Evolucion mensual por tipo de cartera
+- Grafico de barras apiladas: Top 10 entidades vigente vs vencida
+- Treemap: Participacion por entidad
 
-## 📊 Power BI
-
-Conecta directamente al PostgreSQL o importa un CSV exportado desde Python.
-
-**Visualizaciones incluidas:**
-- Tendencia de saldo total por periodo y tipo de cartera
-- Composición de cartera vigente vs vencida
-- Ranking de entidades por saldo
-- KPIs: saldo total, variación mensual, tasa de mora
-
-**Filtros:** Periodo, Entidad, Tipo de Cartera, Producto
+Filtros interactivos: Periodo, Tipo de cartera, Entidad, Producto
 
 ---
 
-## 📋 Criterios cumplidos
+## Problema resuelto — UnicodeDecodeError byte 0xab
 
-- [x] RPA en Python con paginación y logging
-- [x] Almacenamiento en PostgreSQL con índices
-- [x] API REST funcional con filtros por entidad y tipo de cartera
-- [x] Documentación del código (docstrings + README)
-- [x] Buenas prácticas: separación por capas, manejo de errores, variables de entorno
+psycopg2 es incompatible con Python 3.14. Al conectarse lee archivos internos del sistema con encoding cp1252 de Windows e intenta interpretarlos como UTF-8, produciendo el error en posicion 96 siempre fija.
+
+Solucion: Migrar a psycopg3:
+```bash
+pip install psycopg[binary]
+```
+```python
+import psycopg as psycopg2
+```
+
+---
+
+## Criterios de valoracion cumplidos
+
+| Criterio | Estado |
+|---|---|
+| RPA funcional en Python | OK |
+| Almacenamiento en PostgreSQL | OK |
+| API funcional y publicada | OK |
+| Power BI con filtros y tendencias | OK |
+| Documentacion del codigo | OK |
+| Buenas practicas y estructura limpia | OK |
+| Repositorio en GitHub | OK |
