@@ -7,7 +7,7 @@ Autor: Candidato Prueba Técnica - Visión Gerencial
 import sys
 import os
 import requests
-import psycopg as psycopg2
+import psycopg2
 import logging
 from datetime import datetime
 from dotenv import load_dotenv
@@ -88,10 +88,16 @@ def fetch_all_records() -> list:
 # Funciones de base de datos
 # ──────────────────────────────────────────────
 def get_connection():
-    return psycopg2.connect(
-        os.getenv("DATABASE_URL"),
-        client_encoding='UTF8'
+    """Retorna conexion a PostgreSQL con parametros separados (evita problemas de encoding en el DSN)."""
+    conn = psycopg2.connect(
+        host=os.getenv("DB_HOST", "localhost"),
+        port=int(os.getenv("DB_PORT", "5432")),
+        dbname=os.getenv("DB_NAME", "cartera_db"),
+        user=os.getenv("DB_USER", "postgres"),
+        password=os.getenv("DB_PASSWORD", "12345")
     )
+    conn.set_client_encoding("UTF8")
+    return conn
 
 
 def clean_str(value) -> str | None:
