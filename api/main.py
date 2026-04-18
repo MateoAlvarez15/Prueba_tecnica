@@ -233,6 +233,19 @@ def get_resumen(
     sql += " GROUP BY descrip_uc ORDER BY saldo_total DESC NULLS LAST"
     return JSONResponse(content=jsonify(query_db(sql, tuple(params))))
 
+@app.get("/health", tags=["Info"])
+def health():
+    """
+    Verifica el estado de la API y la conexión a la base de datos.
+    
+    Returns:
+        dict: Estado de la API y de la DB.
+    """
+    try:
+        query_db("SELECT 1")
+        return {"status": "ok", "database": "connected", "records": query_db("SELECT COUNT(*) as total FROM cartera")[0]["total"]}
+    except Exception as e:
+        return {"status": "error", "database": "disconnected", "detail": str(e)}
 
 @app.get("/tendencia", tags=["Análisis"])
 def get_tendencia(
