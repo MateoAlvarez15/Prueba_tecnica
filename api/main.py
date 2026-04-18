@@ -6,16 +6,44 @@ Autor: Candidato Prueba Técnica - Visión Gerencial
 
 from fastapi import FastAPI, Query, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-import psycopg2
-import psycopg2.extras
+from fastapi.responses import JSONResponse
+import psycopg
+from psycopg.rows import dict_row
 import os
+import logging
 from dotenv import load_dotenv
 from typing import Optional
+from decimal import Decimal
+from datetime import datetime, date
+import json
 
 load_dotenv()
 
 # ──────────────────────────────────────────────
-# Aplicación FastAPI
+# Logging
+# ──────────────────────────────────────────────
+logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
+log = logging.getLogger(__name__)
+
+
+# ──────────────────────────────────────────────
+# Serialización personalizada (Decimal, datetime)
+# ──────────────────────────────────────────────
+class CustomEncoder(json.JSONEncoder):
+    def default(self, obj):
+        if isinstance(obj, Decimal):
+            return float(obj)
+        if isinstance(obj, (datetime, date)):
+            return obj.isoformat()
+        return super().default(obj)
+
+def jsonify(data):
+    """Serializa datos con soporte para Decimal y datetime."""
+    return json.loads(json.dumps(data, cls=CustomEncoder))
+
+
+# ──────────────────────────────────────────────
+# App
 # ──────────────────────────────────────────────
 app = FastAPI(
     title="API - Distribución de Cartera Financiera",
@@ -27,7 +55,6 @@ app = FastAPI(
     contact={"name": "Prueba Técnica - Visión Gerencial"}
 )
 
-# CORS: permitir todos los orígenes (ajustar en producción)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -37,23 +64,24 @@ app.add_middleware(
 
 
 # ──────────────────────────────────────────────
-# Utilidades de DB
+# DB helpers
 # ──────────────────────────────────────────────
 def get_connection():
-    """Crea y retorna una conexión a PostgreSQL."""
     db_url = os.getenv("DATABASE_URL")
     if not db_url:
         raise HTTPException(status_code=500, detail="DATABASE_URL no configurada.")
-    return psycopg2.connect(db_url, cursor_factory=psycopg2.extras.RealDictCursor)
+    return psycopg.connect(db_url, row_factory=dict_row)
 
 
 def query_db(sql: str, params: tuple = ()) -> list[dict]:
-    """Ejecuta una consulta y retorna los resultados como lista de dicts."""
     conn = get_connection()
     try:
         cur = conn.cursor()
         cur.execute(sql, params)
         return [dict(row) for row in cur.fetchall()]
+    except Exception as e:
+        log.error(f"Error en consulta DB: {e}")
+        raise HTTPException(status_code=500, detail="Error interno en la base de datos.")
     finally:
         conn.close()
 
@@ -64,128 +92,173 @@ def query_db(sql: str, params: tuple = ()) -> list[dict]:
 
 @app.get("/", tags=["Info"])
 def root():
-    """Endpoint raíz — verifica que la API está activa."""
+    """Verifica que la API está activa y lista."""
     return {
         "status": "ok",
-        "mensaje": "API de Distribución de Cartera Financiera Colombia",
+        "api": "Distribución de Cartera Financiera Colombia",
         "version": "1.0.0",
-        "endpoints": ["/cartera", "/entidades", "/tipos-cartera", "/resumen"]
+        "endpoints": {
+            "cartera":       "/cartera?entidad=Bancolombia&tipo_cartera=LIBRANZA",
+            "entidades":     "/entidades",
+            "tipos_cartera": "/tipos-cartera",
+            "resumen":       "/resumen",
+            "tendencia":     "/tendencia?entidad=Bancolombia"
+        }
     }
 
 
 @app.get("/cartera", tags=["Cartera"])
 def get_cartera(
-    entidad: str = Query(..., description="Nombre (parcial) de la entidad financiera"),
-    tipo_cartera: Optional[str] = Query(None, description="Tipo de cartera (ej: LIBRE INVERSIÓN, TARJETAS DE CRÉDITO)"),
-    fecha_inicio: Optional[str] = Query(None, description="Fecha inicio formato YYYY-MM-DD"),
-    fecha_fin: Optional[str]    = Query(None, description="Fecha fin formato YYYY-MM-DD"),
-    limit: int = Query(500, ge=1, le=5000, description="Máximo de registros a retornar")
+    entidad:      str           = Query(...,   description="Nombre (parcial) de la entidad financiera"),
+    tipo_cartera: Optional[str] = Query(None,  description="Tipo de cartera (ej: LIBRE INVERSION)"),
+    fecha_inicio: Optional[str] = Query(None,  description="Fecha inicio YYYY-MM-DD"),
+    fecha_fin:    Optional[str] = Query(None,  description="Fecha fin YYYY-MM-DD"),
+    page:         int           = Query(1,  ge=1,           description="Página"),
+    page_size:    int           = Query(100, ge=1, le=1000, description="Registros por página")
 ):
     """
-    Consulta la cartera filtrada por **entidad** y opcionalmente por **tipo de cartera**.
-
-    - Busca coincidencia parcial en el nombre de la entidad (case-insensitive).
-    - Se puede agregar rango de fechas de corte.
+    Consulta cartera filtrada por **entidad** y opcionalmente **tipo de cartera**.
+    Soporta paginación con `page` y `page_size`.
     """
-    sql = """
-        SELECT
-            nombreentidad       AS entidad,
-            descrip_uc          AS tipo_cartera,
-            desc_renglon        AS producto,
-            fecha_corte,
-            saldo_total,
-            vigente,
-            (COALESCE(vencida_1_2_meses,0)  + COALESCE(vencida_2_3_meses,0)
-           + COALESCE(vencida_1_3_meses,0)  + COALESCE(vencida_3_4_meses,0)
-           + COALESCE(vencida_4_meses,0)    + COALESCE(vencida_3_6_meses,0)
-           + COALESCE(vencida_6_meses,0)    + COALESCE(vencida_1_4_meses,0)
-           + COALESCE(vencida_4_6_meses,0)  + COALESCE(vencida_6_12_meses,0)
-           + COALESCE(vencida_12_18_meses,0)+ COALESCE(vencida_12_meses,0)
-           + COALESCE(vencida_18_meses,0))  AS total_vencida,
-            num_clientes_mora
+    offset = (page - 1) * page_size
+
+    base_sql = """
         FROM cartera
         WHERE nombreentidad ILIKE %s
     """
     params: list = [f"%{entidad}%"]
 
     if tipo_cartera:
-        sql += " AND descrip_uc ILIKE %s"
+        base_sql += " AND descrip_uc ILIKE %s"
         params.append(f"%{tipo_cartera}%")
-
     if fecha_inicio:
-        sql += " AND fecha_corte >= %s"
+        base_sql += " AND fecha_corte >= %s"
         params.append(fecha_inicio)
-
     if fecha_fin:
-        sql += " AND fecha_corte <= %s"
+        base_sql += " AND fecha_corte <= %s"
         params.append(fecha_fin)
 
-    sql += " ORDER BY fecha_corte DESC, saldo_total DESC LIMIT %s"
-    params.append(limit)
+    total_rows = query_db(f"SELECT COUNT(*) {base_sql}", tuple(params))[0]["count"]
 
-    rows = query_db(sql, tuple(params))
+    select_sql = f"""
+        SELECT
+            nombreentidad                           AS entidad,
+            codigo_entidad,
+            tipo_entidad,
+            descrip_uc                              AS tipo_cartera,
+            desc_renglon                            AS producto,
+            fecha_corte,
+            saldo_total,
+            vigente,
+            (
+                COALESCE(vencida_1_2_meses,  0) + COALESCE(vencida_2_3_meses,  0) +
+                COALESCE(vencida_1_3_meses,  0) + COALESCE(vencida_3_4_meses,  0) +
+                COALESCE(vencida_4_meses,    0) + COALESCE(vencida_3_6_meses,  0) +
+                COALESCE(vencida_6_meses,    0) + COALESCE(vencida_1_4_meses,  0) +
+                COALESCE(vencida_4_6_meses,  0) + COALESCE(vencida_6_12_meses, 0) +
+                COALESCE(vencida_12_18_meses,0) + COALESCE(vencida_12_meses,   0) +
+                COALESCE(vencida_18_meses,   0)
+            )                                       AS total_vencida,
+            num_clientes_mora
+        {base_sql}
+        ORDER BY fecha_corte DESC, saldo_total DESC
+        LIMIT %s OFFSET %s
+    """
+    rows = query_db(select_sql, tuple(params) + (page_size, offset))
 
     if not rows:
         raise HTTPException(status_code=404, detail="No se encontraron registros con los filtros dados.")
 
-    return {"total": len(rows), "filtros": {"entidad": entidad, "tipo_cartera": tipo_cartera}, "data": rows}
+    return JSONResponse(content=jsonify({
+        "paginacion": {
+            "page":    page,
+            "page_size": page_size,
+            "total":   total_rows,
+            "paginas": -(-int(total_rows) // page_size)
+        },
+        "filtros": {"entidad": entidad, "tipo_cartera": tipo_cartera},
+        "data": rows
+    }))
 
 
 @app.get("/entidades", tags=["Catálogos"])
-def get_entidades(q: Optional[str] = Query(None, description="Filtro parcial del nombre")):
-    """Lista todas las entidades financieras disponibles en la base de datos."""
+def get_entidades(q: Optional[str] = Query(None, description="Búsqueda parcial")):
+    """Lista todas las entidades financieras disponibles."""
     sql = "SELECT DISTINCT nombreentidad, codigo_entidad, tipo_entidad FROM cartera"
     params: tuple = ()
-
     if q:
         sql += " WHERE nombreentidad ILIKE %s"
         params = (f"%{q}%",)
-
     sql += " ORDER BY nombreentidad"
-    return query_db(sql, params)
+    return JSONResponse(content=jsonify(query_db(sql, params)))
 
 
 @app.get("/tipos-cartera", tags=["Catálogos"])
 def get_tipos_cartera():
     """Lista todos los tipos de cartera disponibles."""
-    sql = "SELECT DISTINCT unicap, descrip_uc FROM cartera ORDER BY unicap"
-    return query_db(sql)
+    return JSONResponse(content=jsonify(
+        query_db("SELECT DISTINCT unicap, descrip_uc FROM cartera ORDER BY unicap")
+    ))
 
 
 @app.get("/resumen", tags=["Análisis"])
 def get_resumen(
-    entidad: Optional[str] = Query(None, description="Filtrar por entidad"),
+    entidad:      Optional[str] = Query(None, description="Filtrar por entidad"),
     tipo_cartera: Optional[str] = Query(None, description="Filtrar por tipo de cartera")
 ):
-    """
-    Retorna un resumen agregado por tipo de cartera:
-    saldo total, cartera vigente, total vencida y número de clientes en mora.
-    """
+    """Resumen agregado por tipo de cartera: saldo total, vigente, vencida y mora."""
     sql = """
         SELECT
-            descrip_uc                      AS tipo_cartera,
-            COUNT(*)                        AS num_registros,
-            SUM(saldo_total)                AS saldo_total,
-            SUM(vigente)                    AS total_vigente,
+            descrip_uc                  AS tipo_cartera,
+            COUNT(*)                    AS num_registros,
+            SUM(saldo_total)            AS saldo_total,
+            SUM(vigente)                AS total_vigente,
             SUM(
-                COALESCE(vencida_1_2_meses,0)  + COALESCE(vencida_2_3_meses,0)
-              + COALESCE(vencida_1_3_meses,0)  + COALESCE(vencida_3_4_meses,0)
-              + COALESCE(vencida_4_meses,0)    + COALESCE(vencida_3_6_meses,0)
-              + COALESCE(vencida_6_meses,0)
-            )                               AS total_vencida,
-            SUM(num_clientes_mora)          AS clientes_en_mora
+                COALESCE(vencida_1_2_meses,0) + COALESCE(vencida_2_3_meses,0) +
+                COALESCE(vencida_1_3_meses,0) + COALESCE(vencida_3_4_meses,0) +
+                COALESCE(vencida_4_meses,0)   + COALESCE(vencida_3_6_meses,0) +
+                COALESCE(vencida_6_meses,0)
+            )                           AS total_vencida,
+            SUM(num_clientes_mora)      AS clientes_en_mora
         FROM cartera
         WHERE 1=1
     """
     params: list = []
-
     if entidad:
         sql += " AND nombreentidad ILIKE %s"
         params.append(f"%{entidad}%")
-
     if tipo_cartera:
         sql += " AND descrip_uc ILIKE %s"
         params.append(f"%{tipo_cartera}%")
+    sql += " GROUP BY descrip_uc ORDER BY saldo_total DESC NULLS LAST"
+    return JSONResponse(content=jsonify(query_db(sql, tuple(params))))
 
-    sql += " GROUP BY descrip_uc ORDER BY saldo_total DESC"
-    return query_db(sql, tuple(params))
+
+@app.get("/tendencia", tags=["Análisis"])
+def get_tendencia(
+    entidad:      Optional[str] = Query(None, description="Filtrar por entidad"),
+    tipo_cartera: Optional[str] = Query(None, description="Filtrar por tipo de cartera")
+):
+    """
+    Evolución mensual del saldo total agrupado por fecha de corte y tipo de cartera.
+    Ideal para gráficas de tendencia en Power BI.
+    """
+    sql = """
+        SELECT
+            DATE_TRUNC('month', fecha_corte)    AS periodo,
+            descrip_uc                          AS tipo_cartera,
+            SUM(saldo_total)                    AS saldo_total,
+            SUM(vigente)                        AS total_vigente,
+            SUM(num_clientes_mora)              AS clientes_en_mora
+        FROM cartera
+        WHERE fecha_corte IS NOT NULL
+    """
+    params: list = []
+    if entidad:
+        sql += " AND nombreentidad ILIKE %s"
+        params.append(f"%{entidad}%")
+    if tipo_cartera:
+        sql += " AND descrip_uc ILIKE %s"
+        params.append(f"%{tipo_cartera}%")
+    sql += " GROUP BY periodo, descrip_uc ORDER BY periodo ASC"
+    return JSONResponse(content=jsonify(query_db(sql, tuple(params))))
