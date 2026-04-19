@@ -12,17 +12,16 @@ import logging
 from datetime import datetime
 from dotenv import load_dotenv
 
-# Windows: forzar UTF-8 antes de cualquier otra cosa
+# Windows: forzar UTF-8 antes de cualquier otra cosa para evitar
+# errores de encoding en consola y archivos de log.
 if sys.platform == "win32":
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 
 load_dotenv()
 
-# ──────────────────────────────────────────────
-# Configuración de logging — UTF-8 explícito
-# en consola y archivo para compatibilidad Windows
-# ──────────────────────────────────────────────
+# Configuración de logging con UTF-8 explícito en consola y archivo.
+# Garantiza compatibilidad en Windows donde el encoding por defecto es cp1252.
 _fmt = logging.Formatter("%(asctime)s [%(levelname)s] %(message)s")
 
 _console_handler = logging.StreamHandler(sys.stdout)
@@ -36,16 +35,15 @@ log.setLevel(logging.INFO)
 log.addHandler(_console_handler)
 log.addHandler(_file_handler)
 
-# ──────────────────────────────────────────────
-# Constantes
-# ──────────────────────────────────────────────
+# URL base del dataset en datos.gov.co (API Socrata)
+# y tamaño máximo de registros por petición.
 DATASET_URL = "https://www.datos.gov.co/resource/rvii-eis8.json"
 LIMIT       = 50_000
 
 
-# ──────────────────────────────────────────────
-# Funciones de extracción
-# ──────────────────────────────────────────────
+# Descarga un bloque de registros desde la API Socrata.
+# Decodifica los bytes crudos en UTF-8 ignorando caracteres inválidos
+# para evitar errores de encoding con datos del gobierno colombiano.
 def fetch_batch(offset: int = 0) -> list:
     """Descarga un bloque de registros como bytes y decodifica manualmente en UTF-8."""
     params = {
@@ -60,7 +58,8 @@ def fetch_batch(offset: int = 0) -> list:
     texto = response.content.decode("utf-8", errors="replace")
     return json.loads(texto)
 
-
+# Pagina la API en bloques de 50.000 registros hasta obtener
+# todos los datos disponibles en el dataset.
 def fetch_all_records() -> list:
     """Pagina la API hasta obtener todos los registros disponibles."""
     all_records = []
@@ -84,9 +83,10 @@ def fetch_all_records() -> list:
     return all_records
 
 
-# ──────────────────────────────────────────────
 # Funciones de base de datos
-# ──────────────────────────────────────────────
+# Crea y retorna una conexión a PostgreSQL usando parámetros separados.
+# Se usan variables de entorno individuales en lugar de DATABASE_URL
+# para evitar errores de encoding en el DSN con Python 3.14 en Windows.
 def get_connection():
     """Retorna conexion a PostgreSQL con parametros separados (evita problemas de encoding en el DSN)."""
     conn = psycopg2.connect(
@@ -99,7 +99,9 @@ def get_connection():
     conn.set_client_encoding("UTF8")
     return conn
 
-
+# Limpia un string garantizando compatibilidad UTF-8.
+# Elimina caracteres de reemplazo Unicode (U+FFFD) que genera
+# errors='replace' al decodificar bytes inválidos.
 def clean_str(value) -> str | None:
     """Limpia un string garantizando compatibilidad UTF-8."""
     if value is None or value == "":
@@ -109,7 +111,8 @@ def clean_str(value) -> str | None:
     # Eliminar caracteres de reemplazo Unicode (U+FFFD) que puso errors='replace'
     return value.replace("\ufffd", "").strip() or None
 
-
+# Convierte un valor a float de forma segura.
+# Retorna None si el valor es nulo, vacío o no convertible.
 def safe_float(value) -> float | None:
     """Convierte a float de forma segura."""
     try:
@@ -117,7 +120,8 @@ def safe_float(value) -> float | None:
     except (ValueError, TypeError):
         return None
 
-
+# Convierte un valor a entero de forma segura.
+# Retorna None si el valor es nulo, vacío o no convertible.
 def safe_int(value) -> int | None:
     """Convierte a entero de forma segura."""
     try:
@@ -125,7 +129,9 @@ def safe_int(value) -> int | None:
     except (ValueError, TypeError):
         return None
 
-
+# Inserta la lista de registros en la tabla cartera de PostgreSQL.
+# Usa ON CONFLICT DO NOTHING para evitar duplicados en re-ejecuciones.
+# Hace rollback por registro en caso de error para no perder los demás.
 def insert_records(records: list) -> int:
     """Inserta registros en la tabla cartera. Retorna filas insertadas."""
     conn = get_connection()
@@ -199,9 +205,8 @@ def insert_records(records: list) -> int:
     return inserted
 
 
-# ──────────────────────────────────────────────
+
 # Punto de entrada
-# ──────────────────────────────────────────────
 if __name__ == "__main__":
     start = datetime.now()
     log.info("=" * 50)

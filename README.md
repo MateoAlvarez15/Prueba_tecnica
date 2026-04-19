@@ -2,14 +2,13 @@
 
 ![Python](https://img.shields.io/badge/Python-3.14-blue)
 ![FastAPI](https://img.shields.io/badge/FastAPI-0.111-green)
-![PostgreSQL](https://img.shields.io/badge/PostgreSQL-16-blue)
+![PostgreSQL](https://img.shields.io/badge/PostgreSQL-18-blue)
 ![Render](https://img.shields.io/badge/Deploy-Render-purple)
 ![Status](https://img.shields.io/badge/API-Live-brightgreen)
 
 Solución completa para extraer, almacenar, exponer y visualizar los datos de distribución de cartera de las entidades financieras colombianas publicados en [datos.gov.co](https://www.datos.gov.co/Hacienda-y-Cr-dito-P-blico/Distribuci-n-de-cartera-por-producto/rvii-eis8/about_data).
 
-> **Prueba Técnica — Practicante TI | Visión Gerencial**
-> Candidato: Mateo Alvarez | Entrega: 18 de abril de 2026
+
 
 ---
 
@@ -62,6 +61,16 @@ Prueba_tecnica/
 
 ### Variables de entorno
 
+**RPA (local):**
+```env
+DB_HOST=localhost
+DB_PORT=5432
+DB_NAME=cartera_db
+DB_USER=postgres
+DB_PASSWORD=tu_password
+```
+
+**API (Render):**
 ```env
 DATABASE_URL=postgresql://usuario:password@host:5432/nombre_db
 ```
@@ -158,6 +167,12 @@ Visualizaciones:
 - Grafico de barras apiladas: Top 10 entidades vigente vs vencida
 - Treemap: Participacion por entidad
 
+**Página 2 — Análisis de Mora**
+- Gráfico de barras: Tasa de mora por entidad
+- Gráfico de línea: Evolución mensual de clientes en mora por tipo de cartera
+- Gráfico de dispersión: Relación entre saldo total y cartera vencida por entidad
+- Tabla detallada: Top entidades con mayor mora, clientes afectados y tasa de mora
+
 Filtros interactivos: Periodo, Tipo de cartera, Entidad, Producto
 
 ---
@@ -174,16 +189,3 @@ pip install psycopg[binary]
 import psycopg as psycopg2
 ```
 
----
-
-## Criterios de valoracion cumplidos
-
-| Criterio | Estado |
-|---|---|
-| RPA funcional en Python | OK |
-| Almacenamiento en PostgreSQL | OK |
-| API funcional y publicada | OK |
-| Power BI con filtros y tendencias | OK |
-| Documentacion del codigo | OK |
-| Buenas practicas y estructura limpia | OK |
-| Repositorio en GitHub | OK |
